@@ -1,3 +1,4 @@
+virtenv
 *.py[cod]
 
 # C extensions
