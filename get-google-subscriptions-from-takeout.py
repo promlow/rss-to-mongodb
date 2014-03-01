@@ -31,13 +31,45 @@ def get_tags(node, tags):
                             if val not in tags[tag]:
                                 tags[tag].append(val)
                         i = i + 1
-                                
+
+
+def parse_xml(xml, subscripts):
+    dom = minidom.parseString(xml)
+    subs = dom.getElementsByTagName('outline')
+    sn = 0
+    for sub in subs:
+        i = 0
+        attrs = {}
+        while i < sub.attributes.length:
+            nnm = sub.attributes.item(i)
+            attrs[nnm.name] = nnm.value
+            i = i + 1
+
+        if 'xmlUrl' in attrs:
+            sn = sn + 1
+            subscripts.append(attrs)
+        else:
+             get_tags(sub, tags)
+
+    return subscripts
+
+def tag_subs(subs, tags):                        
+    for feed in subs:
+        xmlurl = feed['xmlUrl']
+        for tag in tags:
+            for tagurl in tags[tag]:
+                if xmlurl == tagurl:
+                    if not 'tags' in feed:
+                        feed['tags'] = []                            
+                    feed['tags'].append(tag)
+                        
+
 
 if __name__ == '__main__':
     if len(sys.argv) < 2:
         print 'Supply a path to the takeout file, please'
     else:
-        subscripts = []
+        subscripts = None
         tags = {}
         takeout = ZipFile(sys.argv[1])
         for _file in takeout.infolist():
@@ -51,50 +83,23 @@ if __name__ == '__main__':
                 for l in ext_file:
                     xml = xml + l
 
-                dom = minidom.parseString(xml)
-                subs = dom.getElementsByTagName('outline')
-                sn = 0
-                for sub in subs:
-                    i = 0
-                    attrs = {}
-                    while i < sub.attributes.length:
-                        nnm = sub.attributes.item(i)
-                        attrs[nnm.name] = nnm.value
-                        i = i + 1
-
-                    if 'xmlUrl' in attrs:
-                        sn = sn + 1
-                        subscripts.append(attrs)
-                    else:
-                        get_tags(sub, tags)
-        print "Sub count %d" % sn
-
-    print "len(tags) %d" % len(tags)
-    print "Preparing to insert %d feeds" % len(subscripts)
-    for feed in subscripts:
-        feed_tags = []
-        xmlurl = feed['xmlUrl']
-        for tag in tags:
-            for tagurl in tags[tag]:
-                if xmlurl == tagurl:
-                    if 'tags' in feed:
-                        feed['tags'].append(tag)
-                    else:
-                        feed['tags'] = []
-                        feed['tags'].append(tag)
+                subscripts = parse_xml(xml, [])
 
 
+        print "Preparing to insert %d feeds" % len(subscripts)
+        tag_subs(subscripts, tags)
 
-    config = ConfigParser.ConfigParser()
-    config.read('mongo.cfg')
-    url = config.get('mongodb', 'url')
-    client = MongoClient(url) #connect to server
-    db = client.feed_reader   #get a database
-    feeds = db.feeds          #get a table
-    
-    count = feeds.insert(subscripts)
+        config = ConfigParser.ConfigParser()
+        config.read('mongo.cfg')
+        url = config.get('mongodb', 'url')
+        client = MongoClient(url) #connect to server
+        db = client.feed_reader   #get a database
+        feeds = db.feeds          #get a table
+        
+        feeds.remove()
+        count = feeds.insert(subscripts)
     
     
-    print "Inserted %d feeds" % len(count)
+        print "Inserted %d feeds" % len(count)
 
                 
