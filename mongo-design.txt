@@ -1,0 +1,40 @@
+database feed_reader:
+	 collections:
+		feed_url:
+			URL
+			last_fetched
+			last_modified
+			expires
+			last_update_interval
+	
+	 	channel:
+			DBRef -> feed
+			title
+			link
+			description
+			language
+			image
+		
+		users:
+			email
+			nick
+			password
+			salt
+			friends [DBRef -> user]
+			subscriptions [DBRef -> channel]
+			unread_items [DBRef -> items]
+
+		items:
+			DBRef -> channel
+			title
+			link
+			summary
+			description
+			content
+			author
+			guid
+			 
+		tags:
+			DBRef -> user
+			DBRef -> channel
+			
