@@ -53,7 +53,6 @@ if __name__ == '__main__':
 
                 dom = minidom.parseString(xml)
                 subs = dom.getElementsByTagName('outline')
-                #config = ConfigParser.RawConfigParser()
                 sn = 0
                 for sub in subs:
                     i = 0
@@ -64,38 +63,38 @@ if __name__ == '__main__':
                         i = i + 1
 
                     if 'xmlUrl' in attrs:
-                        #section = "subscription%d" % sn
                         sn = sn + 1
                         subscripts.append(attrs)
-                        #config.add_section(section)
-                        #for key in iter(attrs):
-                        #    config.set(section, key, attrs[key])
                     else:
                         get_tags(sub, tags)
+        print "Sub count %d" % sn
 
-                        
-    print tags
-    print subscripts
+    print "len(tags) %d" % len(tags)
+    print "Preparing to insert %d feeds" % len(subscripts)
+    for feed in subscripts:
+        feed_tags = []
+        xmlurl = feed['xmlUrl']
+        for tag in tags:
+            for tagurl in tags[tag]:
+                if xmlurl == tagurl:
+                    if 'tags' in feed:
+                        feed['tags'].append(tag)
+                    else:
+                        feed['tags'] = []
+                        feed['tags'].append(tag)
 
-#                config.add_section('subscriptions')
-#                 config.set('subscriptions', 'count', sn)
-#
-#                i = 0
-#                config.add_section('tags')
-#                for tag in tags:
-#                    key = "tag%d" % i
-#                    config.set('tags', key, tag)
-#                    config.add_section(tag)
-#                    j = 0
-#                   for url in tags[tag]:
-#                        url_key = "url%d" % j
-#                        config.set(tag, url_key, url)
-#                        j = j + 1
-#                    i = i + 1
-                
-                
-#                with open('subs.cfg', 'wb') as configfile:
-#                    config.write(configfile)
- 
+
+
+    config = ConfigParser.ConfigParser()
+    config.read('mongo.cfg')
+    url = config.get('mongodb', 'url')
+    client = MongoClient(url) #connect to server
+    db = client.feed_reader   #get a database
+    feeds = db.feeds          #get a table
+    
+    count = feeds.insert(subscripts)
+    
+    
+    print "Inserted %d feeds" % len(count)
 
                 
