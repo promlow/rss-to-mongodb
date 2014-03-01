@@ -5,8 +5,10 @@ from xml.dom import Node
 
 import ConfigParser
 import sys
+import feedparser
 
 from pymongo import MongoClient
+from bson.dbref import DBRef
 
 def get_tags(node, tags):
     if node.hasChildNodes():
@@ -89,29 +91,67 @@ if __name__ == '__main__':
         print "Preparing to insert %d feeds" % len(subscripts)
         tag_subs(subscripts, tags)
 
-        config = ConfigParser.ConfigParser()
+        config = ConfigParser.SafeConfigParser({'host' :'localhost', 'port' : '27017', 'db' : 'feed_reader'})
         config.read('mongo.cfg')
-        url = config.get('mongodb', 'url')
-        client = MongoClient(url) #connect to server
-        db = client.feed_reader   #get a database
-        feeds = db.feeds          #get a table/collection
+        host = config.get('mongodb', 'host')
+        port = config.get('mongodb', 'port')
+        db_name = config.get('mongodb', 'db')
+
+        #set some sane defaults, if the entry is 'host=', e.g.
+        if len(host) == 0:
+            host = 'localhost'
+
+        if len(port) == 0:
+            port = 27017
+        else:
+            port = int(port)
+
+        if len(db_name) == 0:
+            db_name = 'feed_reader'
+
+        nick = config.get('user', 'nick')
+        if len(nick) == 0:
+            nick = 'test_nickname'
+
+        email = config.get('user', 'email')
+        if len(email) == 0:
+            email = 'test@example.com'
+
+        client = MongoClient(host, port) #connect to server
+        db = client[db_name]             #get a database
+        db_channels = db.channels        #get a table/collection
+        db_channels.remove()             #always remove existing
         
+        #insert into channels
+        channels = []
+        for sub in subscripts:
+            channel = {}
+            channel['url'] = sub['xmlUrl']
+            #fetch channel info
+            print "fetching: ", channel['url']
+            c = feedparser.parse(channel['url'])
+            feed = c.feed
+            channel['title'] = feed.title
+            channel['link'] = feed.link
+            channel['description'] = feed.description
+            if 'language' in feed:
+                channel['language'] = feed.language
+            if 'icon' in feed:
+                channel['image'] = feed.icon.href
+            elif 'image' in feed:
+                channel['image'] = feed.image.href
+
+            id = db_channels.save(channel)
+            channels.append(DBRef('channels', id, db_name))
+
         users = db.users
+        user = users.find_one({'email': email})
+        if not user:
+            print "creating user {0} with nickname: {1}".format(email, nick)
+            user = users.insert({'email': email, 'nick': nick})
         
-        #insert into feed_urls
-        feeds.remove() #delete old junk
-        #feed_urls = db.feed_urls
-        #for sub in subscripts:
-            
-        count = feeds.insert(subscripts)
-
-        
-    
-        #fetch RSS Channel info
-        #create RSS Channel
-
-        #
-    
-        print "Inserted %d feeds" % len(count)
+        user['subscriptions'] = channels
+        users.save(user)
+        print "User {0} has {1} subscriptions".format(user['email'], len(user['subscriptions']))
 
                 
