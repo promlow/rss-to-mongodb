@@ -1,20 +1,17 @@
 database feed_reader:
-	 collections:
-		feed_url:
+	 collections:		
+	 	channels:
+			title
+			link
+			description
+			language
+			image
 			URL
 			last_fetched
 			last_modified
 			expires
 			last_update_interval
 	
-	 	channel:
-			DBRef -> feed
-			title
-			link
-			description
-			language
-			image
-		
 		users:
 			email
 			nick
@@ -22,10 +19,10 @@ database feed_reader:
 			salt
 			friends [DBRef -> user]
 			subscriptions [DBRef -> channel]
-			unread_items [DBRef -> items]
 
 		items:
 			DBRef -> channel
+			date_added_or_created
 			title
 			link
 			summary
@@ -35,6 +32,8 @@ database feed_reader:
 			guid
 			 
 		tags:
+			tag
 			DBRef -> user
 			DBRef -> channel
+
 			
