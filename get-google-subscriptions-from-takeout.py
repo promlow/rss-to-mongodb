@@ -94,11 +94,23 @@ if __name__ == '__main__':
         url = config.get('mongodb', 'url')
         client = MongoClient(url) #connect to server
         db = client.feed_reader   #get a database
-        feeds = db.feeds          #get a table
+        feeds = db.feeds          #get a table/collection
         
-        feeds.remove()
+        users = db.users
+        
+        #insert into feed_urls
+        feeds.remove() #delete old junk
+        #feed_urls = db.feed_urls
+        #for sub in subscripts:
+            
         count = feeds.insert(subscripts)
+
+        
     
+        #fetch RSS Channel info
+        #create RSS Channel
+
+        #
     
         print "Inserted %d feeds" % len(count)
 
