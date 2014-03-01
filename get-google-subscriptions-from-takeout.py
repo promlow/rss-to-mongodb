@@ -6,9 +6,9 @@ from xml.dom import Node
 import ConfigParser
 import sys
 
-tags = {}
+from pymongo import MongoClient
 
-def get_tags(node):
+def get_tags(node, tags):
     if node.hasChildNodes():
         i = 0
         tag = ""
@@ -37,6 +37,8 @@ if __name__ == '__main__':
     if len(sys.argv) < 2:
         print 'Supply a path to the takeout file, please'
     else:
+        subscripts = []
+        tags = {}
         takeout = ZipFile(sys.argv[1])
         for _file in takeout.infolist():
             if _file.filename.endswith('subscriptions.xml'):
@@ -51,7 +53,7 @@ if __name__ == '__main__':
 
                 dom = minidom.parseString(xml)
                 subs = dom.getElementsByTagName('outline')
-                config = ConfigParser.RawConfigParser()
+                #config = ConfigParser.RawConfigParser()
                 sn = 0
                 for sub in subs:
                     i = 0
@@ -61,33 +63,39 @@ if __name__ == '__main__':
                         attrs[nnm.name] = nnm.value
                         i = i + 1
 
-                        if 'xmlUrl' in attrs:
-                            section = "subscription%d" % sn
-                            config.add_section(section)
-                            for key in iter(attrs):
-                                config.set(section, key, attrs[key])
-                                sn = sn + 1
-                        else:
-                            get_tags(sub)
+                    if 'xmlUrl' in attrs:
+                        #section = "subscription%d" % sn
+                        sn = sn + 1
+                        subscripts.append(attrs)
+                        #config.add_section(section)
+                        #for key in iter(attrs):
+                        #    config.set(section, key, attrs[key])
+                    else:
+                        get_tags(sub, tags)
 
-                config.add_section('subscriptions')
-                config.set('subscriptions', 'count', sn)
+                        
+    print tags
+    print subscripts
 
-                i = 0
-                config.add_section('tags')
-                for tag in tags:
-                    key = "tag%d" % i
-                    config.set('tags', key, tag)
-                    config.add_section(tag)
-                    j = 0
-                    for url in tags[tag]:
-                        url_key = "url%d" % j
-                        config.set(tag, url_key, url)
-                        j = j + 1
-                    i = i + 1
+#                config.add_section('subscriptions')
+#                 config.set('subscriptions', 'count', sn)
+#
+#                i = 0
+#                config.add_section('tags')
+#                for tag in tags:
+#                    key = "tag%d" % i
+#                    config.set('tags', key, tag)
+#                    config.add_section(tag)
+#                    j = 0
+#                   for url in tags[tag]:
+#                        url_key = "url%d" % j
+#                        config.set(tag, url_key, url)
+#                        j = j + 1
+#                    i = i + 1
                 
                 
-                with open('subs.cfg', 'wb') as configfile:
-                    config.write(configfile)
-                    
+#                with open('subs.cfg', 'wb') as configfile:
+#                    config.write(configfile)
+ 
+
                 
