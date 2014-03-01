@@ -1,0 +1,3 @@
+[submodule "pythreadpool"]
+	path = pythreadpool
+	url = https://github.com/promlow/python-thread-pool.git
