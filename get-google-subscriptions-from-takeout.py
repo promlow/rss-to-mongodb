@@ -120,6 +120,7 @@ if __name__ == '__main__':
         client = MongoClient(host, port) #connect to server
         db = client[db_name]             #get a database
         db_channels = db.channels        #get a table/collection
+        
         db_channels.remove()             #always remove existing
         
         #insert into channels
@@ -134,8 +135,7 @@ if __name__ == '__main__':
             channel['title'] = feed.title
             channel['link'] = feed.link
             channel['description'] = feed.description
-            if 'language' in feed:
-                channel['language'] = feed.language
+            channel['language'] = feed.get('language', '')
             if 'icon' in feed:
                 channel['image'] = feed.icon.href
             elif 'image' in feed:
