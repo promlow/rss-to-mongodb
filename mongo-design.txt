@@ -9,7 +9,7 @@ database feed_reader:
 			URL
 			last_fetched
 			last_modified
-			expires
+			etag
 			last_update_interval
 	
 		users:
