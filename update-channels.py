@@ -6,13 +6,11 @@ import hashlib
 import os
 import sys
 import urllib2
-
+from wsgiref.handlers import format_date_time
 from datetime import datetime
 from time import mktime
 from pymongo import MongoClient
 from bson.dbref import DBRef
-from urllib2 import Request
-from urllib2 import HTTPError
 
 smodcfg = ConfigParser.SafeConfigParser()
 smodcfg.read('submodule.cfg')
@@ -21,55 +19,44 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), ptp)))
 
 from threadpool import ThreadPool
 
-class ChannelFetcher:
+
+class ChannelFetcherParser:
     
-    def __init__(self, host, port, db_name, chan_coll):
-        self._client = MongoClient(host, port)
-        self._db = self._client[db_name]
-        self._channels = self._db[chan_coll]
-
-    def fetch_all_channels(self):
-        channels = list(self._channels.find())
-        for channel in channels:
-            print channel['url']
-            request = Request(channel['url'])
-            if 'last_modified' in channel:
-                request.add_header('If-Modified-Since', channel['last_modified'])
-            
-            response = None
-            try:
-                response = urllib2.urlopen(request)
-                last_fetched = datetime.utcnow()
-            except HTTPError as http:
-                print http.code, http.reason
-
-            if response:
-                channel['xml'] = response.readlines()
-                last_mod = response.info().getfirstmatchingheader('Last-Modified')
-                if last_mod:
-                    channel['last_modified'] = last_mod[0].strip()
-                else:
-                    channel['last_modified'] = format_date_time(mktime(last_fetched.timetuple()))
-                channel['last_fetched'] = last_fetched.isoformat()
-
-                self._channels.save(channel)
-                    
-                    
-            
-
-
-class ChannelParser:
-    
-    def __init__(self, url, last_mod_date, queue, event):
+    def __init__(self, url, last_mod_date, etag, queue, event):
         self._url = url
         self._q = queue
         self._event = event
+        self._etag = etag
+        self._last_mod_date = last_mod_date
 
     def __call__(self):
-        items = feedparser.parse(self._url)
+        if self._last_mod_date and self._etag:
+            items = feedparser.parse(self._url, etag=self._etag, modified=self._last_mod_date)
+        elif self._last_mod_date:
+            items = feedparser.parse(self._url, modified=self._last_mod_date)
+        elif self._etag:
+            items = feedparser.parse(self._url, etag=self._etag)
+        else:
+            items = feedparser.parse(self._url)
+
+        try:
+            etag = items.etag
+        except AttributeError:
+            etag = None
+
+        mod_date = None
+        try:
+            mod_date = format_date_time(mktime(items.modified_parse))
+        except AttributeError:
+            if not etag:
+                mod_date = format_date_time(mktime(datetime.utcnow().timetuple()))
+        
         for entry in items.entries:
             item = {}
-            item['modified'] = entry.modified
+            if mod_date:
+                item['modified'] = mod_date
+            if etag:
+                item['etag'] = items.etag
             item['url'] = self._url
             item['title'] = entry.get('title', '')
             item['link'] = entry.get('link', '')
@@ -102,7 +89,7 @@ class ItemInserter:
         self._q = queue
         self._channel_refs = {}
         self._finished = finish_events
-
+        self._fetch_timestamp = datetime.utcnow().isoformat()
     
     def __del__(self):
         self._client.disconnect()
@@ -157,6 +144,26 @@ class ItemInserter:
     def store_to_mongo(self, item):
         channel = self._channels.find_one({'url' : item['url']})
         if channel:
+            
+            if 'last_fetched' in channel:
+                if channel['last_fetched'] != self._fetch_timestamp:
+                    channel['last_fetched'] = self._fetch_timestamp
+            else:
+                channel['last_fetched'] = self._fetch_timestamp
+
+            if 'last_modified' in channel and 'modified' in item:
+                if channel['last_modified'] != item['modified']:
+                    channel['last_modified'] = item['modified']
+            elif 'etag' in channel and 'etag' in item:
+                if channel['etag'] != item['etag']:
+                    channel['etag'] = item['etag']
+            elif 'modified' in item:
+                channel['last_modified'] = item['modified']
+            elif 'etag' in item:
+                channel['etag'] = item['etag']
+
+            self._channels.save(channel)
+
             if len(item['guid']) < 1:
                 item['guid'] = self._gen_guid(item)
 
@@ -173,7 +180,6 @@ class ItemInserter:
                     
                 del item['url']
                 self._items.save(item)
-            self._channels.save(channel)
         else:
             print "Failed to find channel with URL: %s" % item['url']    
         
@@ -186,29 +192,36 @@ if __name__ == '__main__':
     host = config.get('mongodb', 'host')
     port = config.getint('mongodb', 'port')
     db_name = config.get('mongodb', 'db')
-
-    cf = ChannelFetcher(host, port, db_name, 'channels')
-    cf.fetch_all_channels()
-
-
     
-#    client = MongoClient(host, port)
-#    db = client[db_name]
-#    channels = list(db.channels.find())
-#    client.disconnect() #probably not the most efficient, but the mongo client isn't thread safe
+    client = MongoClient(host, port)
+    db = client[db_name]
+    channels = list(db.channels.find())
+    client.disconnect() #probably not the most efficient, but the mongo client isn't thread safe
 
-#    work_queue = Queue.Queue()
-#    finish_events = []
-#    tp = ThreadPool(multiprocessing.cpu_count(), queue_size=0, wait_timeout=1)
-#    ii = ItemInserter(host, port, db_name, 'items', 'channels', work_queue, finish_events)     
+    work_queue = Queue.Queue()
+    finish_events = []
+    tp = ThreadPool(multiprocessing.cpu_count(), queue_size=0, wait_timeout=1)
+    ii = ItemInserter(host, port, db_name, 'items', 'channels', work_queue, finish_events)     
 
-#    for channel in channels:
-#        e = threading.Event()
-#        fp = ChannelFetcherParser(channel['url'], work_queue, e)
-#        ii._finished.append(e)
-#        tp.addTask(fp)
+    for channel in channels:
+        
+        mod_date = None
+        try:
+            etag = channel['etag']
+        except KeyError:
+            etag = None
 
-#    tp.addTask(ii)
-#    work_queue.join()
-#    tp.cleanUpThreads()
+        try:
+            mod_date = channel['last_modified']
+        except KeyError:
+            mod_date = None            
+
+        e = threading.Event()
+        fp = ChannelFetcherParser(channel['url'], mod_date, etag, work_queue, e)
+        ii._finished.append(e)
+        tp.addTask(fp)
+
+    tp.addTask(ii)
+    work_queue.join()
+    tp.cleanUpThreads()
 
