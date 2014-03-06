@@ -5,7 +5,6 @@ import feedparser
 import hashlib
 import os
 import sys
-import urllib2
 from wsgiref.handlers import format_date_time
 from datetime import datetime
 from time import mktime
@@ -21,7 +20,6 @@ from threadpool import ThreadPool
 
 
 class ChannelFetcherParser:
-    
     def __init__(self, url, last_mod_date, etag, queue, event):
         self._url = url
         self._q = queue
@@ -50,7 +48,7 @@ class ChannelFetcherParser:
         except AttributeError:
             if not etag:
                 mod_date = format_date_time(mktime(datetime.utcnow().timetuple()))
-        
+
         for entry in items.entries:
             item = {}
             if mod_date:
@@ -77,10 +75,33 @@ class ChannelFetcherParser:
             self._q.put(item, block=True)
 
         self._event.set()
-            
-            
-class ItemInserter:
 
+
+def _gen_guid(item):
+    h = hashlib.sha256()
+
+    if not 'made_up_date' in item:
+        h.update(str(item['date']))
+
+        ba = bytearray(item['title'], 'utf-8')
+        h.update(ba)
+        ba = bytearray(item['link'], 'utf-8')
+        h.update(ba)
+        ba = bytearray(item['summary'], 'utf-8')
+        h.update(ba)
+        ba = bytearray(item['description'], 'utf-8')
+        h.update(ba)
+        ba = bytearray(item['author'], 'utf-8')
+        h.update(ba)
+        for d in item['content']:
+            for k in d:
+                if d[k]:
+                    ba = bytearray(d[k], 'utf-8')
+                    h.update(ba)
+    return h.hexdigest()
+
+
+class ItemInserter:
     def __init__(self, host, port, db_name, item_coll, chan_coll, queue, finish_events):
         self._client = MongoClient(host, port)
         self._db = client[db_name]
@@ -90,7 +111,7 @@ class ItemInserter:
         self._channel_refs = {}
         self._finished = finish_events
         self._fetch_timestamp = datetime.utcnow().isoformat()
-    
+
     def __del__(self):
         self._client.disconnect()
 
@@ -117,34 +138,10 @@ class ItemInserter:
                 finally:
                     self._q.task_done()
 
-    def _gen_guid(self, item):
-        h = hashlib.sha256()
-
-        if not 'made_up_date' in item:
-            h.update(str(item['date']))
-            
-            ba = bytearray(item['title'], 'utf-8')
-            h.update(ba)
-            ba = bytearray(item['link'], 'utf-8')
-            h.update(ba)
-            ba = bytearray(item['summary'], 'utf-8')
-            h.update(ba)
-            ba = bytearray(item['description'], 'utf-8')
-            h.update(ba)
-            ba = bytearray(item['author'], 'utf-8')
-            h.update(ba)
-            for d in item['content']:
-                for k in d:
-                    if d[k]:
-                        ba = bytearray(d[k], 'utf-8')
-                        h.update(ba)
-        return h.hexdigest()
-
-
     def store_to_mongo(self, item):
-        channel = self._channels.find_one({'url' : item['url']})
+        channel = self._channels.find_one({'url': item['url']})
         if channel:
-            
+
             if 'last_fetched' in channel:
                 if channel['last_fetched'] != self._fetch_timestamp:
                     channel['last_fetched'] = self._fetch_timestamp
@@ -165,46 +162,46 @@ class ItemInserter:
             self._channels.save(channel)
 
             if len(item['guid']) < 1:
-                item['guid'] = self._gen_guid(item)
+                item['guid'] = _gen_guid(item)
 
-            db_item = self._items.find_one({'guid' : item['guid']})
-            if db_item: 
+            db_item = self._items.find_one({'guid': item['guid']})
+            if db_item:
                 #print "skipping ", item['guid'], " found ", db_item['guid']
                 return
             else:
                 if item['url'] in self._channel_refs:
-                    item['channel'] = self._channel_refs[item['url']]                    
+                    item['channel'] = self._channel_refs[item['url']]
                 else:
                     item['channel'] = DBRef('channels', channel['_id'], self._db.name)
                     self._channel_refs[item['url']] = item['channel']
-                    
+
                 del item['url']
                 self._items.save(item)
         else:
-            print "Failed to find channel with URL: %s" % item['url']    
-        
+            print "Failed to find channel with URL: %s" % item['url']
+
 
 if __name__ == '__main__':
     import multiprocessing
-    
-    config = ConfigParser.SafeConfigParser({'host' :'localhost', 'port' : '27017', 'db' : 'feed_reader'})
+
+    config = ConfigParser.SafeConfigParser({'host': 'localhost', 'port': '27017', 'db': 'feed_reader'})
     config.read('mongo.cfg')
     host = config.get('mongodb', 'host')
     port = config.getint('mongodb', 'port')
     db_name = config.get('mongodb', 'db')
-    
+
     client = MongoClient(host, port)
     db = client[db_name]
     channels = list(db.channels.find())
-    client.disconnect() #probably not the most efficient, but the mongo client isn't thread safe
+    client.disconnect()  # probably not the most efficient, but the mongo client isn't thread safe
 
     work_queue = Queue.Queue()
     finish_events = []
     tp = ThreadPool(multiprocessing.cpu_count(), queue_size=0, wait_timeout=1)
-    ii = ItemInserter(host, port, db_name, 'items', 'channels', work_queue, finish_events)     
+    ii = ItemInserter(host, port, db_name, 'items', 'channels', work_queue, finish_events)
 
     for channel in channels:
-        
+
         mod_date = None
         try:
             etag = channel['etag']
@@ -214,7 +211,7 @@ if __name__ == '__main__':
         try:
             mod_date = channel['last_modified']
         except KeyError:
-            mod_date = None            
+            mod_date = None
 
         e = threading.Event()
         fp = ChannelFetcherParser(channel['url'], mod_date, etag, work_queue, e)
